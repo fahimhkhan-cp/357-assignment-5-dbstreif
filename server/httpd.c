@@ -34,9 +34,10 @@ void request_processor(char *request, ssize_t num, int nfd) {
     char *arglist[3];
     char *token = request;
 
-    char *not_found = "HTTP/1.0 404 NOT FOUND\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n";
-    char *bad_request = "HTTP/1.0 400 BAD REQUEST\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n";
-    char header[256] = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n";
+    char not_found[256] = "HTTP/1.0 404 NOT FOUND\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n";
+    char permission_denied[256] = "HTTP/1.0 403 PERMISSION DENIED\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n";
+    char bad_request[256] = "HTTP/1.0 400 BAD REQUEST\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n";
+    char ok[256] = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n";
 
     int index = 0;
     while ((token = strsep(&request, " ")) != NULL) {
@@ -134,9 +135,9 @@ void request_processor(char *request, ssize_t num, int nfd) {
 
             char content_size[100];
             snprintf(content_size, sizeof(content_size), "Content-Length: %ld\r\n\r\n", content_buffer_size) ;
-            strcat(header, content_size);
+            strcat(ok, content_size);
 
-            write(nfd, header, strlen(header));
+            write(nfd, ok, strlen(ok));
             write(nfd, content_buffer, strlen(content_buffer));
 
             free(content_buffer);
@@ -145,14 +146,21 @@ void request_processor(char *request, ssize_t num, int nfd) {
     }
 
     else if (strcmp(arglist[0], "GET") == 0) {
+        printf("%s", arglist[1]);
         if (strcmp(arglist[1], "/") == 0) {
             arglist[1] = "/index.html";
+        }
+        else if (strncmp(arglist[1], "..", 2) == 0 || strncmp(arglist[1], "/..", 3) == 0 || strncmp(arglist[1], "//", 2) == 0) {
+            strncat(permission_denied, "<pre>403 PERMISSION DENIED</pre>\0", 34);
+            write(nfd, permission_denied, strlen(permission_denied));
+            return;
         }
 
         char webpath[256] = WEBPATH;
         strcat(webpath, arglist[1]);
         FILE *page = fopen(webpath, "r");
         if (page == NULL) {
+            strncat(not_found, "<pre>404 NOT FOUND</pre>\0", 25);
             write(nfd, not_found, strlen(not_found));
         }
         else {
@@ -160,7 +168,7 @@ void request_processor(char *request, ssize_t num, int nfd) {
             stat(webpath, fileStat);
             char content_size[100];
             snprintf(content_size, sizeof(content_size), "Content-Length: %ld\r\n\r\n", fileStat->st_size) ;
-            strcat(header, content_size);
+            strcat(ok, content_size);
 
             rewind(page);
             fseek(page, 0, SEEK_END);
@@ -185,7 +193,7 @@ void request_processor(char *request, ssize_t num, int nfd) {
             message_buf[page_size] = '\0';
             fclose(page);
 
-            char *full_message = strdup(header);
+            char *full_message = strdup(ok);
 
             if (full_message == NULL) {
                 perror("malloc failed");
@@ -212,19 +220,27 @@ void request_processor(char *request, ssize_t num, int nfd) {
     }
     else if (strcmp(arglist[0], "HEAD") == 0) {
         char webpath[256] = WEBPATH;
+
+        if (strncmp(arglist[1], "..", 2) == 0 || strncmp(arglist[1], "/..", 3) == 0 || strncmp(arglist[1], "//", 2) == 0) {
+            strncat(permission_denied, "<pre>403 PERMISSION DENIED</pre>\0", 34);
+            write(nfd, permission_denied, strlen(permission_denied));
+            return;
+        }
+
         strcat(webpath, arglist[1]);
         FILE *page = fopen(webpath, "r");
         if (page == NULL) {
+            strncat(not_found, "<pre>404 NOT FOUND</pre>\0", 25);
             write(nfd, not_found, strlen(not_found));
         }
         else {
-            char header[256] = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n";
+            char ok[256] = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n";
             struct stat fileStat[BUFSIZE]; 
             stat(webpath, fileStat);
             char content_size[100];
             snprintf(content_size, sizeof(content_size), "Content-Length: %ld\r\n\r\n", fileStat->st_size) ;
-            strcat(header, content_size);
-            write(nfd, header, strlen(header));
+            strcat(ok, content_size);
+            write(nfd, ok, strlen(ok));
         }
 
     }
